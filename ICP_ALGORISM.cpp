@@ -293,7 +293,6 @@ int main(void){
     // gnuplot_script << "set yrange [-20:20]\n";
     icp_scan_matching(gnuplot_pipe, Source,target);
     // gnuplot_script.close();
-    // std::string gnuplot_command = "gnuplot -p plot_commands.gp";
     
    pclose(gnuplot_pipe);
     return 0;
