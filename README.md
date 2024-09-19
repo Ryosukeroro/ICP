@@ -7,5 +7,6 @@ scan_1.txtとscan_2.txtを用意します。
 ### 実行コマンド
 ```
 g++ -o ICP_ALGORI ICP_ALGORI.cpp
+./ICP_ALGORI
 ```
 
