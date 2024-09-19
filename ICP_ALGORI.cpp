@@ -253,7 +253,7 @@ previous_error_sum = error_sum;//前回の誤差を更新
 int main(void){
     auto start_time = std::chrono::high_resolution_clock::now();
     std::vector<Point> current = read_scan_points("点群ファイル/scan_1.txt");
-    std::vector<Point> target = read_scan_points("scan_2.txt");
+    std::vector<Point> target = read_scan_points("点群ファイル/scan_2.txt");
     //std::cout << "Points from scan_1.txt:" << std::endl;
     for (const auto& point : current) {
        // std::cout << "x: " << point.x << ", y: " << point.y << std::endl;
