@@ -11,3 +11,9 @@ g++ -o ICP_ALGORI ICP_ALGORI.cpp
 ```
 #### 実行例
 ![Screenshot from 2024-09-19 13-41-50](https://github.com/user-attachments/assets/79e6cc75-6f68-4732-965c-17e52e69cc3b)
+
+
+catkin config --source-space src \
+              --build-space build \
+              --devel-space devel \
+              --install-space install
