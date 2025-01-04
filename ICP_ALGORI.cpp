@@ -58,23 +58,6 @@ int count = 0;
 // std::array<float, 3> motion = {0.0f, 0.0f, 0.0f};
 // std::vector<float> transformedX(numPoints2);
 // std::vector<float> transformedY(numPoints2);
-// float diffX;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 std::vector<Point> read_scan_points(const std::string& file_path){
     std::ifstream file(file_path);
