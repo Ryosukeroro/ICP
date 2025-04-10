@@ -58,6 +58,23 @@ int count = 0;
 // std::array<float, 3> motion = {0.0f, 0.0f, 0.0f};
 // std::vector<float> transformedX(numPoints2);
 // std::vector<float> transformedY(numPoints2);
+// float diffX;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 std::vector<Point> read_scan_points(const std::string& file_path){
     std::ifstream file(file_path);
@@ -234,9 +251,8 @@ previous_error_sum = error_sum;//前回の誤差を更新
 
 
 int main(void){
-    auto start_time = std::chrono::high_resolution_clock::now();
-    std::vector<Point> current = read_scan_points("点群ファイル/scan_1.txt");
-    std::vector<Point> target = read_scan_points("点群ファイル/scan_2.txt");
+    std::vector<Point> current = read_scan_points("scan_1.txt");
+    std::vector<Point> target = read_scan_points("scan_2.txt");
     //std::cout << "Points from scan_1.txt:" << std::endl;
     for (const auto& point : current) {
        // std::cout << "x: " << point.x << ", y: " << point.y << std::endl;
@@ -270,7 +286,7 @@ int main(void){
     // gnuplot_script << "set size ratio 1\n";
     // gnuplot_script << "set xrange [-20:20]\n";
     // gnuplot_script << "set xrange [-20:20]\n";
-    // gnuplot_script << "set yrange [-20:20]\n";
+    auto start_time = std::chrono::high_resolution_clock::now();
     icp_scan_matching(gnuplot_script, Source,target);
     // gnuplot_script.close();
     // std::string gnuplot_command = "gnuplot -p plot_commands.gp";
