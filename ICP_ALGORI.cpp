@@ -193,6 +193,8 @@ float difftheta(Point Target, Point SOurce){
 }
 
 void icp_scan_matching(std::ofstream& gnuplot_script, const std::vector<Point>& Source, const std::vector<Point>& target){
+    auto icp_start = std::chrono::high_resolution_clock::now();
+    std::chrono::milliseconds total_plot_time(0); // 描画時間の合計
 std::vector<Point> transformed_source = Source;
 float previous_error_sum = std::numeric_limits<float>::max(); // 前回の誤差を最大値で初期化
 for(int iter = 0; iter <= MAX_iteration; ++iter){
@@ -235,7 +237,11 @@ for(auto& Source : transformed_source){
     Source.x = x_new + dx;
     Source.y = y_new + dy;
 }
+  // ==== 描画時間の除外 ====
+    auto plot_start = std::chrono::high_resolution_clock::now();
 plot(gnuplot_script, target, transformed_source, true,iter);
+ auto plot_end = std::chrono::high_resolution_clock::now();
+        total_plot_time += std::chrono::duration_cast<std::chrono::milliseconds>(plot_end - plot_start);
 
 /*収束条件のチェック*/
 if(std::abs(previous_error_sum - error_sum) < EPS){
@@ -244,7 +250,10 @@ break;
 }
 previous_error_sum = error_sum;//前回の誤差を更新
 }
+ auto icp_end = std::chrono::high_resolution_clock::now();
+    auto icp_duration = std::chrono::duration_cast<std::chrono::milliseconds>(icp_end - icp_start);
 
+    std::cout << "ICP algorithm completed in " << (icp_duration - total_plot_time).count() << " milliseconds (excluding plotting)." << std::endl;
 //plot(target, transformed_source, true);
 }
 
