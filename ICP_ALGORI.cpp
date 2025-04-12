@@ -51,7 +51,6 @@ int count = 0;
 // float random_y;
 // float angle = 0.0f;
 
-// /*移動量*/
 // std::array<float, 3> motion = {0.0f, 0.0f, 0.0f};
 // std::vector<float> transformedX(numPoints2);
 // std::vector<float> transformedY(numPoints2);
