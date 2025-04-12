@@ -30,7 +30,6 @@ struct Point{
 /*count値*/
 int count = 0;
 
-// float Error = std::numeric_limits<float>::max();
 
 // /*1回めのError値*/
 // float initialError;
