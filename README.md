@@ -13,5 +13,7 @@ g++ -o ICP_ALGORI ICP_ALGORI.cpp
 ![Screenshot from 2024-09-19 13-41-50](https://github.com/user-attachments/assets/79e6cc75-6f68-4732-965c-17e52e69cc3b)
 
 ## ICP_ALGORISM.cpp
-## 実行コマンド
-
+### 実行コマンド
+```
+g++ -o ICP_ALGORISM ICP_ALGORISM.cpp
+```
