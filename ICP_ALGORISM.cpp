@@ -7,6 +7,7 @@
 #include <vector> // std::vectorを使用するために必要
 #include <fstream>//ファイル操作用のライブラリ
 #include <sstream>
+
 /*構造体*/
 struct Point{
     float x,y;
@@ -292,7 +293,6 @@ int main(void){
     // gnuplot_script << "set xrange [-20:20]\n";
     // gnuplot_script << "set yrange [-20:20]\n";
     icp_scan_matching(gnuplot_pipe, Source,target);
-    // gnuplot_script.close();
     
    pclose(gnuplot_pipe);
     return 0;
