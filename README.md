@@ -16,4 +16,5 @@ g++ -o ICP_ALGORI ICP_ALGORI.cpp
 ### 実行コマンド
 ```
 g++ -o ICP_ALGORISM ICP_ALGORISM.cpp
+./ICP_ALGORISM
 ```
