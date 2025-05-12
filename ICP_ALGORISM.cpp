@@ -12,6 +12,7 @@
 struct Point{
     float x,y;
 };
+
 /*定義*/
 #define MAX_iteration 30
 #define max_dist 3
