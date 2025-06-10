@@ -7,6 +7,8 @@
 #include <vector> // std::vectorを使用するために必要
 #include <fstream>//ファイル操作用のライブラリ
 #include <sstream>
+#include <unistd.h>
+#include <chrono>
 
 /*構造体*/
 struct Point{
@@ -15,17 +17,16 @@ struct Point{
 
 /*定義*/
 #define MAX_iteration 30
-#define max_dist 3
 
 /*収束判定の閾値*/
 #define EPS  0.001
 
 /*微小変位*/
-#define delta 1.0e-8
+#define delta 1.0e-7
 
 
 /*学習率*/
-#define learning_rate 1
+#define learning_rate 1.2
 
 
 /*count値*/
@@ -46,7 +47,7 @@ float errorHistory[MAX_iteration];
 //float dyHistory[MAX_iTERATION];
 //std::string linesToSave[MAX_iTERATION]; // CSVファイルに保存するデータ
 //std::string linesToSave_dy[MAX_ItERATION];
-//std::string linesToSave_dx[MAX_ItERATION];
+
 /*点群数*/
 const int numPoints1 = 723;
 const int numPoints2 = 737;
@@ -66,10 +67,7 @@ float dy;
 /*並進方向の移動誤差標準偏差[m]*/
 float transitionSigma=0.0000f;
 // 回転方向の誤差標準偏差
-float thetaSigma = 0.0000f;
-/*回転角*/
-float theta;
-/*前の座標を保持する2次元配列*/
+
 
 
 
@@ -117,7 +115,7 @@ std::array<std::array<float, 3>, 3> make_transformation_matrix(float tx, float t
     }};
 }
 
-std::vector<Point> transformpoints(const std::vector<Point>& points, float dx, float dy, float theta){
+std::vector<Point> transformpoints(const std::vector<Point>& points, float dx, float dy, double theta){
     std::vector<Point> moved_points;
     auto transformation_matrix = make_transformation_matrix(dx, dy, theta);
     for(const auto& point : points){
@@ -128,33 +126,39 @@ std::vector<Point> transformpoints(const std::vector<Point>& points, float dx, f
     return moved_points;
 }
 
-void plot (std::ofstream& gnuplot_script, const std::vector<Point>& target, const std::vector<Point>& Source, bool block,int iteration){
-    gnuplot_script.open("plot_commands.gp");
-     gnuplot_script << "set size ratio 1\n";
-    gnuplot_script << "set xrange [-20:20]\n";
-    gnuplot_script << "set xrange [-20:20]\n";
-    gnuplot_script << "set yrange [-20:20]\n";
-    gnuplot_script << "set title 'Iteration " << iteration << "'\n"; // 現在のループ回数を表示
-    gnuplot_script << "plot '-' with points pointtype 7 pointsize 1 lc rgb 'blue' title 'Target points', '-' with points pointtype 7 pointsize 1 lc rgb 'red' title 'Source points'\n";
+void plot (FILE* gnuplot_pipe, const std::vector<Point>& target, const std::vector<Point>& Source, const std::vector<std::pair<Point,Point>>& correspondences, int iteration, bool converged = false ){
+    fprintf(gnuplot_pipe, "set size ratio 1\n");
+    fprintf(gnuplot_pipe, "set xrange [-20:20]\n");
+    fprintf(gnuplot_pipe, "set yrange [-20:20]\n");
+    fprintf(gnuplot_pipe, "set title 'Iteration %d'\n", iteration+1);
+    if (converged) {
+    fprintf(gnuplot_pipe, "set label 'Converged!' at screen 0.5, 0.9 center font ',20' textcolor rgb 'green'\n");
+}
+
+    fprintf(gnuplot_pipe, "plot '-' with points pointtype 7 pointsize 1 lc rgb 'blue' title 'Target points','-' with points pointtype 7 pointsize 1 lc rgb 'red' title 'Source points', ""'-' with lines lc rgb 'green' title 'Correspondences'\n");
     for(const auto& point : target){
-        gnuplot_script << point.x << " " << point.y << "\n";
+        fprintf(gnuplot_pipe, "%f %f\n", point.x, point.y);
     }
-    gnuplot_script << "e\n";
+    fprintf(gnuplot_pipe, "e\n");
     for(const auto& point : Source){
-        gnuplot_script << point.x << " " << point.y << "\n";
+        fprintf(gnuplot_pipe, "%f %f\n", point.x, point.y);
     }
-    gnuplot_script << "e\n";
+fprintf(gnuplot_pipe, "e\n");
+    for(const auto& pair : correspondences) {
+        fprintf(gnuplot_pipe, "%f %f\n%f %f\n\n", pair.first.x, pair.first.y, pair.second.x, pair.second.y);
+        }
+            fprintf(gnuplot_pipe, "e\n");
+    fprintf(gnuplot_pipe, "e\n");
+    fflush(gnuplot_pipe);
+    sleep(1);
      //gnuplot_script << "pause -1\n";  // プロットを更新するために一時停止
-    gnuplot_script.flush(); // スクリプトをフラッシュして即時反映させる
-    gnuplot_script << "set size ratio 1\n";
-     gnuplot_script.close();
-    // gnuplot_script.close();
-     std::string gnuplot_command = "gnuplot -p plot_commands.gp";
-    // /*if (block) {
-    //     std::cout << "Press Enter to continue...";
-    // std::cin.ignore(); // 
-    // }*/
-     system(gnuplot_command.c_str());
+    // gnuplot_script.flush(); // スクリプトをフラッシュして即時反映させる
+    // gnuplot_script << "set size ratio 1\n";
+    //  gnuplot_script.close();
+    // // gnuplot_script.close();
+    //  std::string gnuplot_command = "gnuplot -p plot_commands.gp";
+    // // /*if (block) {
+    // //     std::cout << "Press Enter to continue...";
 }
 
 float distance(const Point& points, const Point& point){
@@ -194,11 +198,13 @@ float difftheta(Point Target, Point SOurce){
     return (fx_delta - fx) / delta;
 }
 
-void icp_scan_matching(std::ofstream& gnuplot_script, const std::vector<Point>& Source, const std::vector<Point>& target){
+std::vector<Point> icp_scan_matching(FILE* gnuplot_pipe, const std::vector<Point>& Source, const std::vector<Point>& target){
 std::vector<Point> transformed_source = Source;
 float previous_error_sum = std::numeric_limits<float>::max(); // 前回の誤差を最大値で初期化
 for(int iter = 0; iter <= MAX_iteration; ++iter){
  std::vector<Point> target_closest;
+ std::vector<std::pair<Point, Point>> correspondences;
+ std::vector<Point> original_source = transformed_source;
  float error_sum = 0;
  double gradDx = 0;
  double gradDy = 0;
@@ -210,25 +216,30 @@ for(int iter = 0; iter <= MAX_iteration; ++iter){
  for(const auto& Source : transformed_source ){
   int index = findClosestPoint(Source,target);
   target_closest.push_back(target[index]);
+ correspondences.push_back(std::make_pair(target[index], Source));
+ 
+//ot(gnuplot_pipe, target, Source, correspondences, iter);
+
   Point error = {target[index].x - Source.x, target[index].y - Source.y};
   Point Target = {target[index].x, target[index].y};
   Point SOurce = {Source.x, Source.y};
   error_sum += error.x * error.x + error.y * error.y;
-   std::cout << "error_sum: " << error_sum << std::endl;
+   //std::cout << "error_sum: " << error_sum << std::endl;
   gradDx += diffx(Target, SOurce);
   gradDy += diffy(Target, SOurce);
   gradTheta += difftheta(Target, SOurce);
 
- std::cout << "gradTheta: " << gradTheta << std::endl;
+ //std::cout << "gradTheta: " << gradTheta << std::endl;
  }
+  plot(gnuplot_pipe, target,transformed_source,correspondences, iter);
   int num_points =Source.size(); // Sourceの点の数を取得
 
 dx = (-gradDx / num_points) * learning_rate;
 dy = (-gradDy / num_points) * learning_rate;
 dth = (-gradTheta / num_points) * learning_rate;
   //std::cout << "dx: " << dx << std::endl;
-  std::cout << "dy: " << dy << std::endl;
-  std::cout << "dth: " << dy << std::endl;
+//   std::cout << "dy: " << dy << std::endl;
+//   std::cout << "dth: " << dy << std::endl;
  //dx = -gradDx* learning_rate;
 for(auto& Source : transformed_source){
     //Source.x += dx;
@@ -237,23 +248,25 @@ for(auto& Source : transformed_source){
     Source.x = x_new + dx;
     Source.y = y_new + dy;
 }
-plot(gnuplot_script, target, transformed_source, true,iter);
+//plot(gnuplot_pipe, target, transformed_source,iter);
+
 
 /*収束条件のチェック*/
 if(std::abs(previous_error_sum - error_sum) < EPS){
 std::cout << "Converged after " << iter << "iterations." << std::endl;
+correspondences.clear(); // 対応点を削除
+plot(gnuplot_pipe, target,transformed_source,correspondences, iter,true);
 break;
 }
 previous_error_sum = error_sum;//前回の誤差を更新
 }
-
-//plot(target, transformed_source, true);
+return transformed_source;
 }
 
 
 int main(void){
-    std::vector<Point> current = read_scan_points("scan_1.txt");
-    std::vector<Point> target = read_scan_points("scan_2.txt");
+    std::vector<Point> current = read_scan_points("scan_1.txt");//点群ファイル/
+    std::vector<Point> target = read_scan_points("scan_2.txt");//点群ファイル/
     std::cout << "Points from scan_1.txt:" << std::endl;
     for (const auto& point : current) {
         std::cout << "x: " << point.x << ", y: " << point.y << std::endl;
@@ -268,9 +281,9 @@ int main(void){
     std::cout << "Average of points in scan_1.txt: x: " << avg1.x << ", y: " << avg1.y << std::endl;
 
     /*座標移動*/
-    dx = 1.0f;//例: dxを1.0に設定
-    dy = 0.0f;//例: dyを2.0に設定
-    theta = M_PI/4; //例: thetaを45度(ラジアン)に設定
+    dx = 1.5f;//例: dxを1.0に設定
+    dy = 0.25f;//例: dyを2.0に設定
+    double theta = M_PI/6; //例: thetaを45度(ラジアン)に設定
     std::vector<Point> moved_current = transformpoints(current, dx, dy, theta);
 
     std::cout << "Moved points from scan_1.txt:" << std::endl;
@@ -288,13 +301,23 @@ int main(void){
   std::cerr << "Could not open pipe to GNUplot." << std::endl;
   return 1;
     }
-    plot(gnuplot_script, target, Source, true, 0);
+    std::vector<std::pair<Point, Point>> empty_correspondences; // 空
+    plot(gnuplot_pipe, target, Source, empty_correspondences, 0);
     // gnuplot_script << "set size ratio 1\n";
-    // gnuplot_script << "set xrange [-20:20]\n";
-    // gnuplot_script << "set xrange [-20:20]\n";
-    // gnuplot_script << "set yrange [-20:20]\n";
-    icp_scan_matching(gnuplot_pipe, Source,target);
-    
-   pclose(gnuplot_pipe);
+    int second = 5;
+
+    printf("%d秒間止まります。\n", second);
+
+    sleep(second);
+    // Start measuring time
+    auto start_time = std::chrono::high_resolution_clock::now();
+    //icp_scan_matching(gnuplot_pipe, Source,target);
+    std::vector<Point> final_transformed_source = icp_scan_matching(gnuplot_pipe, Source, target);
+    auto end_time = std::chrono::high_resolution_clock::now();
+   
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    std::cout << "ICP algorithm completed in " << duration.count() << " millseconds." << std::endl;
+    //std::vector<std::pair<Point, Point>> empty_correspondences; // 空
+     pclose(gnuplot_pipe);
     return 0;
 }
