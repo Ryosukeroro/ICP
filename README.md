@@ -18,3 +18,5 @@ g++ -o ICP_ALGORI ICP_ALGORI.cpp
 g++ -o ICP_ALGORISM ICP_ALGORISM.cpp
 ./ICP_ALGORISM
 ```
+このコードも基本的なICPアルゴリズムの実装です。
+ICP_ALGORI.cppよりも視覚性を良くしました。
