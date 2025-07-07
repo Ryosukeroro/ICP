@@ -46,7 +46,6 @@ float dError = std::numeric_limits<float>::max();
 float errorHistory[MAX_iteration];
 //float dyHistory[MAX_iTERATION];
 //std::string linesToSave[MAX_iTERATION]; // CSVファイルに保存するデータ
-//std::string linesToSave_dy[MAX_ItERATION];
 
 /*点群数*/
 const int numPoints1 = 723;
