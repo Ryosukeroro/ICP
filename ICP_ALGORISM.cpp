@@ -318,6 +318,6 @@ int main(void){
     std::cout << "ICP algorithm completed in " << duration.count() << " millseconds." << std::endl;
     //std::vector<std::pair<Point, Point>> empty_correspondences; // 空
      pclose(gnuplot_pipe);
-    std::cout <<" θ: " << -(result.total_theta) * 180.0 / M_PI << " 度 " << std::endl;
+    std::cout << ", dy: " << result.total_dy<<" θ: " << -(result.total_theta) * 180.0 / M_PI << " 度 " << std::endl;
     return 0;
 }
