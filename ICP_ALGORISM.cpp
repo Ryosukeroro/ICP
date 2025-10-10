@@ -9,11 +9,7 @@
 #include <sstream>
 #include <unistd.h>
 #include <chrono>
-
-/*構造体*/
-struct Point{
-    float x,y;
-};
+#include "point.h"
 
 /*定義*/
 #define MAX_iteration 30
