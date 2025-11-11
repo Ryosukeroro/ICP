@@ -314,6 +314,7 @@ int main(void){
     std::cout << "ICP algorithm completed in " << duration.count() << " millseconds." << std::endl;
     //std::vector<std::pair<Point, Point>> empty_correspondences; // 空
      pclose(gnuplot_pipe);
+ std::cout << "位置：" << final_dy << std::endl;
  std::cout << "位置推定：" << std::endl;
     std::cout << "dx: " << result.total_dx <<  ", dy: " << result.total_dy<<" θ: " << -(result.total_theta) * 180.0 / M_PI << " 度 " << std::endl;
     return 0;
