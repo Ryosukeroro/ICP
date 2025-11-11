@@ -10,9 +10,7 @@
 #include <unistd.h>
 #include <chrono>
 #include "point.h"
-
-/*定義*/
-#define MAX_iteration 30
+#include "constants.h"
 
 /*収束判定の閾値*/
 #define EPS  0.001
