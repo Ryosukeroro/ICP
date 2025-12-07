@@ -295,7 +295,6 @@ int main(void){
     icp_scan_matching(gnuplot_script, Source,target);
     // gnuplot_script.close();
     // std::string gnuplot_command = "gnuplot -p plot_commands.gp";
-    // /*if (block) {
    auto end_time = std::chrono::high_resolution_clock::now();
    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
    std::cout << "ICP algorithm completed in " << duration.count() << " millseconds." << std::endl;
