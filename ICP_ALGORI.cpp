@@ -8,16 +8,10 @@
 #include <fstream>//ファイル操作用のライブラリ
 #include <sstream>
 #include <chrono>
-/*構造体*/
-struct Point{
-    float x,y;
-};
-/*定義*/
-#define MAX_iteration 30
+#include "point.h"
+#include "constants.h"
 #define max_dist 3
 
-/*収束判定の閾値*/
-#define EPS  0.001
 
 /*微小変位*/
 #define delta 1.0e-7
@@ -189,12 +183,12 @@ float difftheta(Point Target, Point SOurce){
     return (fx_delta - fx) / delta;
 }
 
-void icp_scan_matching(std::ofstream& gnuplot_script, const std::vector<Point>& Source, const std::vector<Point>& target){
+void icp_scan_matching(std::ofstream& gnuplot_script, const std::vector<Point>& original_source, const std::vector<Point>& target){
     auto icp_start = std::chrono::high_resolution_clock::now();
     std::chrono::milliseconds total_plot_time(0); // 描画時間の合計
-std::vector<Point> transformed_source = Source;
+std::vector<Point> transformed_source = original_source;
 float previous_error_sum = std::numeric_limits<float>::max(); // 前回の誤差を最大値で初期化
-for(int iter = 0; iter <= MAX_iteration; ++iter){
+for(int iter = 0; iter <= MAX_ITERATION; ++iter){
  std::vector<Point> target_closest;
  float error_sum = 0;
  double gradDx = 0;
@@ -218,7 +212,7 @@ for(int iter = 0; iter <= MAX_iteration; ++iter){
 
  //std::cout << "gradTheta: " << gradTheta << std::endl;
  }
-  int num_points =Source.size(); // Sourceの点の数を取得
+  int num_points =transformed_source.size(); // Sourceの点の数を取得
 
 dx = (-gradDx / num_points) * learning_rate;
 dy = (-gradDy / num_points) * learning_rate;
@@ -293,8 +287,6 @@ int main(void){
     // gnuplot_script << "set xrange [-20:20]\n";
     auto start_time = std::chrono::high_resolution_clock::now();
     icp_scan_matching(gnuplot_script, Source,target);
-    // gnuplot_script.close();
-    // std::string gnuplot_command = "gnuplot -p plot_commands.gp";
    auto end_time = std::chrono::high_resolution_clock::now();
    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
    std::cout << "ICP algorithm completed in " << duration.count() << " millseconds." << std::endl;

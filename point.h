@@ -22,4 +22,9 @@ struct Point {
   }
 };
 
+struct PointNormal : public Point {
+    double nx;
+    double ny;
+};
+
 #endif // POINT_H
