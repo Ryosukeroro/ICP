@@ -10,22 +10,6 @@
 #include <chrono>
 #include "point.h"
 #include "constants.h"
-#define max_dist 3
-
-
-/*微小変位*/
-#define delta 1.0e-7
-
-
-/*学習率*/
-#define learning_rate 1
-
-
-/*count値*/
-int count = 0;
-
-
-// /*1回めのError値*/
 // float initialError;
 
 // /*初期化フラグ*/
@@ -71,12 +55,13 @@ std::vector<Point> read_scan_points(const std::string& file_path){
     std::vector<Point> points;
     if (!file.is_open()) {
         std::cerr << "File could not be opened." << std::endl;
+        throw std::runtime_error("Error File could not be opened at path: " + file_path);
         return points;
     }
     std::string line_str;
     while(std::getline(file, line_str)){
         std::istringstream iss(line_str);
-        float x,y;
+        double x,y;
         if(!(iss >> x >> y)){
             std::cerr << "Failed to parse line: " << line_str << std::endl;
             continue;
@@ -119,7 +104,7 @@ std::vector<Point> transformpoints(const std::vector<Point>& points, float dx, f
 
 void plot (std::ofstream& gnuplot_script, const std::vector<Point>& target, const std::vector<Point>& Source, bool block,int iteration){
     gnuplot_script.open("plot_commands.gp");
-     gnuplot_script << "set size ratio 1\n";
+    gnuplot_script << "set size ratio 1\n";
     gnuplot_script << "set xrange [-20:20]\n";
     gnuplot_script << "set xrange [-20:20]\n";
     gnuplot_script << "set yrange [-20:20]\n";
@@ -142,12 +127,11 @@ void plot (std::ofstream& gnuplot_script, const std::vector<Point>& target, cons
     // /*if (block) {
     //     std::cout << "Press Enter to continue...";
     // std::cin.ignore(); // 
-    // }*/
      system(gnuplot_command.c_str());
 }
 
-float distance(const Point& points, const Point& point){
-    return sqrt((points.x - point.x) * (points.x - point.x) + (points.y - point.y) * (points.y - point.y));
+double distance_sq(const Point& points, const Point& point){
+    return (points.x - point.x) * (points.x - point.x) + (points.y - point.y) * (points.y - point.y);
 
 }
 
@@ -155,7 +139,7 @@ int findClosestPoint(const Point& point, const std::vector<Point>& target){
     int Index = -1;
     float minDist = std::numeric_limits<float>::max();
     for(size_t i = 0; i < target.size(); ++i){
-        float dist = distance(target[i], point);
+        float dist = distance_sq(target[i], point);
         if(dist < minDist){
             minDist = dist;
             Index = i;
@@ -178,7 +162,7 @@ float diffy(Point Target, Point SOurce){
 }
 
 float difftheta(Point Target, Point SOurce){
-    float fx_delta = (Target.x - ((SOurce.x)* cos(delta*M_PI/180)-(SOurce.y)* sin(delta*M_PI/180)))* (Target.x - ((SOurce.x)* cos(delta*M_PI/180)-(SOurce.y)* sin(delta*M_PI/180))) + (Target.y - ((SOurce.x) * (sin(delta*M_PI/180)) + (SOurce.y) * cos(delta*M_PI/180))) * (Target.y - ((SOurce.x) * (sin(delta*M_PI/180)) + (SOurce.y) * cos(delta*M_PI/180)));
+    float fx_delta = (Target.x - ((SOurce.x)* cos(delta))-(SOurce.y)* sin(delta))* (Target.x - ((SOurce.x)* cos(delta)-(SOurce.y)* sin(delta))) + (Target.y - ((SOurce.x) * (sin(delta)) + (SOurce.y) * cos(delta))) * (Target.y - ((SOurce.x) * (sin(delta)) + (SOurce.y) * cos(delta)));
     float fx = (Target.x - SOurce.x) * (Target.x - SOurce.x) + (Target.y - SOurce.y) * (Target.y - SOurce.y);
     return (fx_delta - fx) / delta;
 }
@@ -282,9 +266,6 @@ int main(void){
     }
     std::ofstream gnuplot_script("plot_commands.gp");
    plot(gnuplot_script, target, Source, true, 0);
-    // gnuplot_script << "set size ratio 1\n";
-    // gnuplot_script << "set xrange [-20:20]\n";
-    // gnuplot_script << "set xrange [-20:20]\n";
     auto start_time = std::chrono::high_resolution_clock::now();
     icp_scan_matching(gnuplot_script, Source,target);
    auto end_time = std::chrono::high_resolution_clock::now();

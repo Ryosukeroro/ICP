@@ -4,7 +4,7 @@
 #include <cmath> // M_PIを使うため
 
 constexpr int MAX_ITERATION = 40; // 最大反復回数 (ICPなどで使用)
-constexpr double Learning_rate = 0.4;
+constexpr double learning_rate = 0.5;
 constexpr double EPS = 1e-6;
 
 // 例: 0.3m (30cm) 以内の点を使って法線を計算する
