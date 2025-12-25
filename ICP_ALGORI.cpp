@@ -29,7 +29,6 @@
 // float angle = 0.0f;
 
 // std::array<float, 3> motion = {0.0f, 0.0f, 0.0f};
-// std::vector<float> transformedX(numPoints2);
 
 
 
@@ -208,7 +207,6 @@ void icp_scan_matching(std::ofstream& gnuplot_script, const std::vector<Point>& 
 
 
 
-  Point SOurce = {Source.x, Source.y};
    //std::cout << "error_sum: " << error_sum << std::endl;
 
  //std::cout << "gradTheta: " << gradTheta << std::endl;
