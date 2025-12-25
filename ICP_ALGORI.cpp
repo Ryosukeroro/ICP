@@ -10,7 +10,6 @@
 #include <chrono>
 #include "point.h"
 #include "constants.h"
-// float initialError;
 
 // /*初期化フラグ*/
 // bool initialized = false; // 初期化フラグ：リソースが初期化されたかどうかを示す
@@ -31,9 +30,6 @@
 
 // std::array<float, 3> motion = {0.0f, 0.0f, 0.0f};
 // std::vector<float> transformedX(numPoints2);
-// std::vector<float> transformedY(numPoints2);
-// float diffX;
-
 
 
 
@@ -170,47 +166,81 @@ float difftheta(Point Target, Point SOurce){
 void icp_scan_matching(std::ofstream& gnuplot_script, const std::vector<Point>& original_source, const std::vector<Point>& target){
     auto icp_start = std::chrono::high_resolution_clock::now();
     std::chrono::milliseconds total_plot_time(0); // 描画時間の合計
-std::vector<Point> transformed_source = original_source;
-float previous_error_sum = std::numeric_limits<float>::max(); // 前回の誤差を最大値で初期化
-for(int iter = 0; iter <= MAX_ITERATION; ++iter){
+
+    // 作業用点群
+    std::vector<Point> transformed_source = original_source;
+
+    float previous_error_sum = std::numeric_limits<float>::max(); // 前回の誤差を最大値で初期化
+
+    for(int iter = 0; iter <= MAX_ITERATION; ++iter){
  std::vector<Point> target_closest;
- float error_sum = 0;
- double gradDx = 0;
- double gradDy = 0;
- double gradTheta = 0;
- float dx = 0;
- float dy = 0;
- float dth = 0;
+       double error_sum = 0;
+
+       // 勾配 (Gradient) の累積用変数
+       // これが「変換パラメータ(dx, dy, dtheta)をどう変えるべきか」の情報
+       double grad_Tx = 0;
+       double grad_Ty = 0;
+       double grad_Theta = 0;
  float dtheta = 0;
- for(const auto& Source : transformed_source ){
-  int index = findClosestPoint(Source,target);
-  target_closest.push_back(target[index]);
-  Point error = {target[index].x - Source.x, target[index].y - Source.y};
-  Point Target = {target[index].x, target[index].y};
+   for(const auto& current_source : transformed_source ){
+      int index = findClosestPoint(current_source,target);
+      Point closest_target = target[index];
+
+      // 誤差ベクトル (e_x, e_y) = Target - Source
+      double e_x = closest_target.x - current_source.x;
+      double e_y = closest_target.y - current_source.y;
+
+      // 誤差の二乗和 (収束判定用)
+      error_sum += e_x * e_x + e_y * e_y;
+
+      // --- ここが「変換に対する微分」の核心
+
+      // 1. 並進成分の勾配
+      // 誤差が大きいほど、そっちに動かしたい -> 勾配は誤差そのものに比例する (符号は定義によるが、基本は -誤差)
+      // 最急降下法では J = 1/2 * e^2 なので dJ/dx = -e となります。
+      grad_Tx += -e_x;
+      grad_Ty += -e_y;
+
+      // 2. 回転成分の勾配
+      // 「位置 × 力(誤差)」 = モーメント (回転させようとする力)
+      // 回転の微分は外積 (x * e_y - y * e_x) になります
+      grad_Theta += -(current_source.x * e_y - current_source.y * e_x);
+
+
+
   Point SOurce = {Source.x, Source.y};
-  error_sum += error.x * error.x + error.y * error.y;
    //std::cout << "error_sum: " << error_sum << std::endl;
-  gradDx += diffx(Target, SOurce);
-  gradDy += diffy(Target, SOurce);
-  gradTheta += difftheta(Target, SOurce);
 
  //std::cout << "gradTheta: " << gradTheta << std::endl;
  }
-  int num_points =transformed_source.size(); // Sourceの点の数を取得
+ int num_points =transformed_source.size(); // Sourceの点の数を取得
 
-dx = (-gradDx / num_points) * learning_rate;
-dy = (-gradDy / num_points) * learning_rate;
-dth = (-gradTheta / num_points) * learning_rate;
+ // 学習率を掛けて更新量を決定
+ // (勾配の向きと逆方向に進むのでマイナス...ですが、上記で既にマイナス勾配を計算しているので
+ // ここでは単純に学習率を掛けます。符号が合うように調整してください)
+
+ // ※ gradには既に「マイナス(target-source)」が入っているので、
+ //  SourceをTargetに近づけるには、このgradの方向に進めばよい
+
+
+ double dx = - (grad_Tx / num_points) * learning_rate;
+ double dy = - (grad_Ty / num_points) * learning_rate;
+ double dth = - (grad_Theta / num_points) * learning_rate;
+
+ // 点群の更新 (変換を適用)
+ double cos_th = cos(dth);
+ double sin_th = sin(dth);
   //std::cout << "dx: " << dx << std::endl;
  // std::cout << "dy: " << dy << std::endl;
   //std::cout << "dth: " << dy << std::endl;
  //dx = -gradDx* learning_rate;
-for(auto& Source : transformed_source){
-    //Source.x += dx;
-    float x_new = Source.x * cos(dth) - Source.y * sin(dth);
-    float y_new = Source.x * sin(dth) + Source.y * cos(dth);
-    Source.x = x_new + dx;
-    Source.y = y_new + dy;
+for(auto& p: transformed_source){
+    // 回転
+    double x_new = p.x * cos_th - p.y * sin_th;
+    double y_new = p.x * sin_th + p.y * cos_th;
+    // 並進
+    p.x = x_new + dx;
+    p.y = y_new + dy;
 }
   // ==== 描画時間の除外 ====
     auto plot_start = std::chrono::high_resolution_clock::now();
