@@ -28,8 +28,6 @@
 // float random_y;
 // float angle = 0.0f;
 
-// std::array<float, 3> motion = {0.0f, 0.0f, 0.0f};
-
 
 
 
@@ -144,21 +142,29 @@ int findClosestPoint(const Point& point, const std::vector<Point>& target){
 
 }
 
-float diffx(Point Target, Point SOurce){
-    float fx_delta = (Target.x - (SOurce.x + delta)) * (Target.x - (SOurce.x + delta)) + (Target.y - SOurce.y) * (Target.y - SOurce.y);
-    float fx = (Target.x - SOurce.x) * (Target.x - SOurce.x) + (Target.y - SOurce.y) * (Target.y - SOurce.y);
+double diffx(Point Target, Point Source){
+    double fx_delta = (Target.x - (Source.x + delta)) * (Target.x - (Source.x + delta)) + (Target.y - Source.y) * (Target.y - Source.y);
+    double fx = (Target.x - Source.x) * (Target.x - Source.x) + (Target.y - Source.y) * (Target.y - Source.y);
     return (fx_delta - fx) / delta;
 }
 
-float diffy(Point Target, Point SOurce){
-    float fx_delta = (Target.x - SOurce.x) * (Target.x - SOurce.x) + (Target.y - (SOurce.y + delta)) * (Target.y - (SOurce.y + delta));
-    float fx = (Target.x - SOurce.x) * (Target.x - SOurce.x) + (Target.y - SOurce.y) * (Target.y - SOurce.y);
+double diffy(Point Target, Point Source){
+    double fx_delta = (Target.x - Source.x) * (Target.x - Source.x) + (Target.y - (Source.y + delta)) * (Target.y - (Source.y + delta));
+    double fx = (Target.x - Source.x) * (Target.x - Source.x) + (Target.y - Source.y) * (Target.y - Source.y);
     return (fx_delta - fx) / delta;
 }
 
-float difftheta(Point Target, Point SOurce){
-    float fx_delta = (Target.x - ((SOurce.x)* cos(delta))-(SOurce.y)* sin(delta))* (Target.x - ((SOurce.x)* cos(delta)-(SOurce.y)* sin(delta))) + (Target.y - ((SOurce.x) * (sin(delta)) + (SOurce.y) * cos(delta))) * (Target.y - ((SOurce.x) * (sin(delta)) + (SOurce.y) * cos(delta)));
-    float fx = (Target.x - SOurce.x) * (Target.x - SOurce.x) + (Target.y - SOurce.y) * (Target.y - SOurce.y);
+double difftheta(Point Target, Point Source){
+    // 回転(原点周り)をdeltaだけずらした時の座標
+    double cos_d = cos(delta);
+    double sin_d = sin(delta);
+    double x_rot = Source.x * cos_d - Source.y * sin_d;
+    double y_rot = Source.x * sin_d + Source.y * cos_d;
+
+    // ずらした後の誤差 - 現在の誤差
+    double fx_delta = (Target.x - x_rot) * (Target.x - x_rot) + (Target.y - y_rot) * (Target.y - y_rot);
+    double fx = (Target.x - Source.x) * (Target.x - Source.x) + (Target.y - Source.y) *(Target.y - Source.y);
+    
     return (fx_delta - fx) / delta;
 }
 
@@ -197,13 +203,13 @@ void icp_scan_matching(std::ofstream& gnuplot_script, const std::vector<Point>& 
       // 1. 並進成分の勾配
       // 誤差が大きいほど、そっちに動かしたい -> 勾配は誤差そのものに比例する (符号は定義によるが、基本は -誤差)
       // 最急降下法では J = 1/2 * e^2 なので dJ/dx = -e となります。
-      grad_Tx += -e_x;
-      grad_Ty += -e_y;
+      grad_Tx += diffx(closest_target, current_source);
+      grad_Ty += diffy(closest_target, current_source);
 
       // 2. 回転成分の勾配
       // 「位置 × 力(誤差)」 = モーメント (回転させようとする力)
       // 回転の微分は外積 (x * e_y - y * e_x) になります
-      grad_Theta += -(current_source.x * e_y - current_source.y * e_x);
+      grad_Theta += difftheta(closest_target, current_source);;
 
 
 
@@ -221,9 +227,9 @@ void icp_scan_matching(std::ofstream& gnuplot_script, const std::vector<Point>& 
  //  SourceをTargetに近づけるには、このgradの方向に進めばよい
 
 
- double dx = - (grad_Tx / num_points) * learning_rate;
- double dy = - (grad_Ty / num_points) * learning_rate;
- double dth = - (grad_Theta / num_points) * learning_rate;
+ double dx = - (grad_Tx / num_points) * learning_rate_xy;
+ double dy = - (grad_Ty / num_points) * learning_rate_xy;
+ double dth = - (grad_Theta / num_points) * learning_rate_th;
 
  // 点群の更新 (変換を適用)
  double cos_th = cos(dth);
@@ -245,7 +251,14 @@ for(auto& p: transformed_source){
 plot(gnuplot_script, target, transformed_source, true,iter);
  auto plot_end = std::chrono::high_resolution_clock::now();
         total_plot_time += std::chrono::duration_cast<std::chrono::milliseconds>(plot_end - plot_start);
+// 更新量の「大きさ（の二乗）」を計算
+double update_sq_norm = (dx * dx) + (dy * dy) + (dth * dth);
 
+// 1e-6 (つまり各成分が平均 0.001 くらい) を下回ったら終了
+if (update_sq_norm < 1e-6) {
+    std::cout << "Converged. Update norm is tiny: " << update_sq_norm << std::endl;
+    break;
+}
 /*収束条件のチェック*/
 if(std::abs(previous_error_sum - error_sum) < EPS){
 std::cout << "Converged after " << iter << "iterations." << std::endl;
