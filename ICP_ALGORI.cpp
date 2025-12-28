@@ -26,7 +26,6 @@
 
 // float random_x;
 // float random_y;
-// float angle = 0.0f;
 
 
 
@@ -167,6 +166,29 @@ double difftheta(Point Target, Point Source){
     
     return (fx_delta - fx) / delta;
 }
+// ★ここがポイント！「deltaを度として扱う」実装
+// double difftheta(Point Target, Point Source){
+//     // delta は 1e-7 だが、これを「度」だと思ってラジアンに変換する
+//     // これにより、実質的な回転量は 1e-7 * (3.14/180) となり非常に小さくなる
+//     double delta_rad = delta * DEG2RAD; 
+
+//     double cos_d = cos(delta_rad);
+//     double sin_d = sin(delta_rad);
+
+//     // 原点中心の回転（うまくいったコードの挙動を再現）
+//     double rot_x = Source.x * cos_d - Source.y * sin_d;
+//     double rot_y = Source.x * sin_d + Source.y * cos_d;
+
+//     double fx_delta = (Target.x - rot_x) * (Target.x - rot_x) + 
+//                       (Target.y - rot_y) * (Target.y - rot_y);
+//     double fx = (Target.x - Source.x) * (Target.x - Source.x) + 
+//                 (Target.y - Source.y) * (Target.y - Source.y);
+    
+//     // 【重要】分母は delta (1e-7) のまま！
+//     // 分子は (PI/180)倍の小さな変化しかしていないのに、分母はそのままなので、
+//     // 結果として出力される勾配の値が「本来のラジアン勾配の約1/57」になる。
+//     return (fx_delta - fx) / delta;
+// }
 
 void icp_scan_matching(std::ofstream& gnuplot_script, const std::vector<Point>& original_source, const std::vector<Point>& target){
     auto icp_start = std::chrono::high_resolution_clock::now();
@@ -229,11 +251,17 @@ void icp_scan_matching(std::ofstream& gnuplot_script, const std::vector<Point>& 
 
  double dx = - (grad_Tx / num_points) * learning_rate_xy;
  double dy = - (grad_Ty / num_points) * learning_rate_xy;
- double dth = - (grad_Theta / num_points) * learning_rate_th;
-
+  double dth = - (grad_Theta / num_points) * learning_rate_th;
+//double dtheta_deg = (-grad_Theta / num_points) * learning_rate_xy;
  // 点群の更新 (変換を適用)
  double cos_th = cos(dth);
  double sin_th = sin(dth);
+// 3. 適用直前でラジアン変換！ (ここ！)
+// double dtheta_rad = dtheta_deg * (M_PI / 180.0);
+
+// // 4. 回転行列に適用
+// double cos_th = cos(dtheta_rad);
+// double sin_th = sin(dtheta_rad);
   //std::cout << "dx: " << dx << std::endl;
  // std::cout << "dy: " << dy << std::endl;
   //std::cout << "dth: " << dy << std::endl;
