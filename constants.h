@@ -3,11 +3,11 @@
 
 #include <cmath> // M_PIを使うため
 
-constexpr int MAX_ITERATION = 40; // 最大反復回数 (ICPなどで使用)
-constexpr double learning_rate_xy = 1;
-constexpr double learning_rate_th = 0.017;
-constexpr double learning_rate = 0.02;
-constexpr double EPS = 1e-6;
+constexpr int MAX_ITERATION = 1000; // 最大反復回数 (ICPなどで使用)
+constexpr double learning_rate_xy = 0.05;
+constexpr double learning_rate_th = 0.007;
+constexpr double learning_rate = 0.01;
+constexpr double EPS = 1e-7;
 
 // 例: 0.3m (30cm) 以内の点を使って法線を計算する
 constexpr double NORMAL_CALC_RADIUS = 0.3;
