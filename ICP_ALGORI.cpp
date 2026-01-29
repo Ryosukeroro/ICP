@@ -1,24 +1,3 @@
-// #include <cmath>
-// #include <ctime>
-// #include <limits>
-// #include <string>
-// #include <array>
-// #include <vector> // std::vectorを使用するために必要
-// #include <fstream>//ファイル操作用のライブラリ
-// #include <sstream>
-// #include <chrono>
-// #include "point.h"
-// #include "constants.h"
-// #include <iomanip> // きれいに表示するために必要
-
-// // /*初期化フラグ*/
-// // bool initialized = false; // 初期化フラグ：リソースが初期化されたかどうかを示す
-// // float preError = 0.0f; // 前回のエラー値。初期値はゼロ
-// // float dError = std::numeric_limits<float>::max();
-// // float errorHistory[MAX_iteration];
-// // //float dyHistory[MAX_iTERATION];
-// // //std::string linesToSave[MAX_iTERATION]; // CSVファイルに保存するデータ
-// // //std::string linesToSave_dy[MAX_ItERATION];
 // // //std::string linesToSave_dx[MAX_ItERATION];
 // // /*点群数*/
 // // const int numPoints1 = 723;
@@ -419,6 +398,16 @@
 #include "point.h"
 #include "constants.h"
 
+// 実験結果を保存する構造体
+struct ExperimentResult {
+    double true_dx, true_dy, true_theta; // 正解値
+    double est_dx, est_dy, est_theta;    // 推定値
+    double error_trans, error_theta;     // 誤差
+    int iterations;                      // かかった反復回数
+    double time_ms;                      // 計算時間
+    bool converged;                      // 収束したか
+};
+
 std::vector<Point> read_scan_points(const std::string& file_path){
     std::ifstream file(file_path);
     std::vector<Point> points;
@@ -429,7 +418,7 @@ std::vector<Point> read_scan_points(const std::string& file_path){
     std::string line_str;
     while(std::getline(file, line_str)){
         std::istringstream iss(line_str);
-        double x,y;
+        float x,y;
         if(!(iss >> x >> y)){
             continue;
         }
@@ -465,6 +454,7 @@ Point get_centroid(const std::vector<Point>& points) {
         sum_x += p.x;
         sum_y += p.y;
     }
+    if (points.empty()) return {0.0, 0.0};
     return {sum_x / points.size(), sum_y / points.size()};
 }
 
@@ -488,7 +478,7 @@ void plot (std::ofstream& gnuplot_script, const std::vector<Point>& target, cons
     system("gnuplot -p plot_commands.gp");
 }
 
-double distance_sq(const Point& points, const Point& point){
+float distance_sq(const Point& points, const Point& point){
     return (points.x - point.x) * (points.x - point.x) + (points.y - point.y) * (points.y - point.y);
 }
 
@@ -506,32 +496,17 @@ int findClosestPoint(const Point& point, const std::vector<Point>& target){
 }
 
 // 数値微分関数群
-double diffx(Point Target, Point Source){
+float diffx(Point Target, Point Source){
     double fx_delta = (Target.x - (Source.x + delta)) * (Target.x - (Source.x + delta)) + (Target.y - Source.y) * (Target.y - Source.y);
     double fx = (Target.x - Source.x) * (Target.x - Source.x) + (Target.y - Source.y) * (Target.y - Source.y);
     return (fx_delta - fx) / delta;
 }
 
-double diffy(Point Target, Point Source){
+float diffy(Point Target, Point Source){
     double fx_delta = (Target.x - Source.x) * (Target.x - Source.x) + (Target.y - (Source.y + delta)) * (Target.y - (Source.y + delta));
     double fx = (Target.x - Source.x) * (Target.x - Source.x) + (Target.y - Source.y) * (Target.y - Source.y);
     return (fx_delta - fx) / delta;
 }
-
-// // deltaを度として扱い、内部でラジアン変換する方式（うまくいったやつ）
-// double difftheta(Point Target, Point Source){
-//     double delta_rad = delta * (M_PI / 180.0); 
-//     double cos_d = cos(delta_rad);
-//     double sin_d = sin(delta_rad);
-
-//     double rot_x = Source.x * cos_d - Source.y * sin_d;
-//     double rot_y = Source.x * sin_d + Source.y * cos_d;
-
-//     double fx_delta = (Target.x - rot_x) * (Target.x - rot_x) + (Target.y - rot_y) * (Target.y - rot_y);
-//     double fx = (Target.x - Source.x) * (Target.x - Source.x) + (Target.y - Source.y) * (Target.y - Source.y);
-    
-//     return (fx_delta - fx) / delta;
-// }
 
 double difftheta(Point Target, Point Source){
     // 回転(原点周り)をdeltaだけずらした時の座標
@@ -547,28 +522,90 @@ double difftheta(Point Target, Point Source){
     return (fx_delta - fx) / delta;
 }
 
-// 引数を追加しています (true_dx, true_dy, true_theta)
-void icp_scan_matching(std::ofstream& gnuplot_script, const std::vector<Point>& original_source, const std::vector<Point>& target, double true_dx, double true_dy, double true_theta){
+/// ==========================================
+// 1. ヘルパー関数群 (SGDの時と同じもの)
+// ==========================================
+float get_absolute_max(const std::vector<Point>& source, const std::vector<Point>& target){
+    float min_x = std::numeric_limits<float>::max();
+    float max_x = std::numeric_limits<float>::lowest();
+    float min_y = std::numeric_limits<float>::max();
+    float max_y = std::numeric_limits<float>::lowest();
+
+    auto update_bounds = [&](const std::vector<Point>& points) {
+        for (const auto& p : points) {
+            if (p.x < min_x) min_x = p.x;
+            if (p.x > max_x) max_x = p.x;
+            if (p.y < min_y) min_y = p.y;
+            if (p.y > max_y) max_y = p.y;
+        }
+    };
+    update_bounds(source);
+    update_bounds(target);
+
+    float abs_max = 0.0f;
+    abs_max = std::max(abs_max, std::abs(min_x));
+    abs_max = std::max(abs_max, std::abs(max_x));
+    abs_max = std::max(abs_max, std::abs(min_y));
+    abs_max = std::max(abs_max, std::abs(max_y));
+    return abs_max;
+}
+
+std::vector<Point> normalise_clouds(const std::vector<Point>& cloud, float max_absolute) {
+    std::vector<Point> normalised_cloud = cloud;
+    if (max_absolute == 0.0f) return normalised_cloud;
+    for(auto& p : normalised_cloud) {
+        p.x = p.x / max_absolute;
+        p.y = p.y / max_absolute;
+    }
+    return normalised_cloud;
+}
+
+void rescale_transformation_matrix(double &x, double &y, float max_absolute) {
+    x = x * max_absolute;
+    y = y * max_absolute;
+}
+
+// データ全体を変換する関数（結果描画用）
+std::vector<Point> transform_points_all(const std::vector<Point>& points, double dx, double dy, double theta) {
+    std::vector<Point> moved_points;
+    moved_points.reserve(points.size());
+    double c = std::cos(theta);
+    double s = std::sin(theta);
+    for (const auto& p : points) {
+        double nx = p.x * c - p.y * s + dx;
+        double ny = p.x * s + p.y * c + dy;
+        moved_points.push_back({nx, ny});
+    }
+    return moved_points;
+}
+
+// ==========================================
+// 2. 修正版 ICP関数 (正規化ロジック追加)
+// ==========================================
+ExperimentResult icp_scan_matching(std::ofstream& gnuplot_script, const std::vector<Point>& original_source, const std::vector<Point>& target, double true_dx, double true_dy, double true_theta, bool visual_mode){
+    
     auto icp_start = std::chrono::high_resolution_clock::now();
     std::chrono::milliseconds total_plot_time(0);
 
-    std::vector<Point> transformed_source = original_source;
-    double previous_error_sum = std::numeric_limits<double>::max();
+    // ★ 1. 正規化の準備
+    float max_scale = get_absolute_max(original_source, target);
+    if(visual_mode) std::cout << "Max Scale Factor: " << max_scale << std::endl;
 
-    // ★岩根さん方式の累積変数を初期化 (0,0)からスタート
-    // double est_x = 0.0;
-    // double est_y = 0.0;
-    // double est_th = 0.0;
-    // ★修正ポイント: Trueの値（初期位置）からスタートする
-    double current_est_x = true_dx;
-    double current_est_y = true_dy;
-    double current_est_th = true_theta;
+    // ★ 2. データを正規化 (-1.0 ~ 1.0 に変換)
+    // これをしないと、座標の値がデカすぎて勾配計算が暴走します
+    std::vector<Point> norm_target = normalise_clouds(target, max_scale);
+    std::vector<Point> norm_source = normalise_clouds(original_source, max_scale);
 
-    // ★修正1: 累積変数をここで宣言！
-    double total_est_dth = 0.0;
+    // 計算用の変数は正規化された空間で動かす
+    std::vector<Point> transformed_source = norm_source;
     
-    // ★修正2: iterをここで宣言！（ループの外でも使えるように）
+    double previous_error_sum = std::numeric_limits<double>::max();
+    double est_x = 0.0;
+    double est_y = 0.0;
+    double est_th = 0.0;
+    
     int iter = 0;
+    bool is_converged = false;
 
     for(iter = 1; iter <= MAX_ITERATION; ++iter){
         double error_sum = 0;
@@ -576,9 +613,10 @@ void icp_scan_matching(std::ofstream& gnuplot_script, const std::vector<Point>& 
         double grad_Ty = 0;
         double grad_Theta = 0;
         
+        // 全点探索 (Standard ICP)
         for(const auto& current_source : transformed_source ){
-            int index = findClosestPoint(current_source, target);
-            Point closest_target = target[index];
+            int index = findClosestPoint(current_source, norm_target); // 正規化ターゲットに対して探索
+            Point closest_target = norm_target[index];
 
             double e_x = closest_target.x - current_source.x;
             double e_y = closest_target.y - current_source.y;
@@ -591,29 +629,23 @@ void icp_scan_matching(std::ofstream& gnuplot_script, const std::vector<Point>& 
 
         int num_points = transformed_source.size();
 
+        // 勾配降下
         double dx = - (grad_Tx / num_points) * learning_rate_xy;
         double dy = - (grad_Ty / num_points) * learning_rate_xy;
-        double dtheta = - (grad_Theta / num_points) * learning_rate_th; // 度として扱う
-
-        // ★累積加算 (回転だけ)
-        // 並進(dx, dy)は回転しながら動いているので単純和は意味がないため、計算しなくてOK
-        //double dtheta_rad = dtheta_deg * (M_PI / 180.0);
-        total_est_dth += dtheta;
+        double dtheta = - (grad_Theta / num_points) * learning_rate_th;
 
         // 座標更新
         double cos_th = cos(dtheta);
         double sin_th = sin(dtheta);
 
-        // 1. まず現在の推定値を回転させる (Old * Rot)
+        // 推定パラメータの更新 (累積)
         double new_est_x = est_x * cos_th - est_y * sin_th;
         double new_est_y = est_x * sin_th + est_y * cos_th;
-
-        // 2. 並進成分を足す (+ dx)
         est_x = new_est_x + dx;
         est_y = new_est_y + dy;
-        est_th += dtheta; // 回転角は単純和でOK
-        // ---------------------------------
+        est_th += dtheta;
 
+        // 点群の更新 (変形)
         for(auto& p: transformed_source){
             double x_new = p.x * cos_th - p.y * sin_th;
             double y_new = p.x * sin_th + p.y * cos_th;
@@ -621,172 +653,180 @@ void icp_scan_matching(std::ofstream& gnuplot_script, const std::vector<Point>& 
             p.y = y_new + dy;
         }
 
-        // 描画
-        auto plot_start = std::chrono::high_resolution_clock::now();
-       // plot(gnuplot_script, target, transformed_source, true, iter);
-        auto plot_end = std::chrono::high_resolution_clock::now();
-        total_plot_time += std::chrono::duration_cast<std::chrono::milliseconds>(plot_end - plot_start);
+        // 描画 (Visual Modeのみ)
+        if (visual_mode) {
+            auto plot_start = std::chrono::high_resolution_clock::now();
+            // 描画中は正規化された座標で見ることになります（形は同じ）
+            plot(gnuplot_script, norm_target, transformed_source, true, iter);
+            auto plot_end = std::chrono::high_resolution_clock::now();
+            total_plot_time += std::chrono::duration_cast<std::chrono::milliseconds>(plot_end - plot_start);
+        }
 
         // 収束判定
-        double update_sq_norm = (dx * dx) + (dy * dy) + (dtheta *dtheta); // dthetaは度で評価してもOK
-        if (update_sq_norm < 1e-9) {
-            std::cout << "Converged. Update norm is tiny." << std::endl;
+        double update_sq_norm = (dx * dx) + (dy * dy) + (dtheta *dtheta);
+        if (update_sq_norm < 1e-5) { // 正規化されているので閾値は小さくてOK
+            if(visual_mode) std::cout << "Converged. Update norm is tiny." << std::endl;
+            is_converged = true;
             break;
         }
         
-        // 誤差変動チェック
-        if(std::abs(previous_error_sum - error_sum) < EPS){
-            std::cout << "Converged by error diff." << std::endl;
+        if(std::abs(previous_error_sum - error_sum) < 1e-5){
+            if(visual_mode) std::cout << "Converged by error diff." << std::endl;
+            is_converged = true;
             break;
         }
         previous_error_sum = error_sum;
     }
 
     auto icp_end = std::chrono::high_resolution_clock::now();
-    auto icp_duration = std::chrono::duration_cast<std::chrono::milliseconds>(icp_end - icp_start);
+    auto total_duration = icp_end - icp_start - total_plot_time;
+    double time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(total_duration).count();
 
-    // // === RMSE (位置合わせ精度) の計算 ===
-    // // 世界標準の評価指標
-    // double sum_sq_error = 0.0;
-    // for(const auto& p : transformed_source) {
-    //     int index = findClosestPoint(p, target);
-    //     Point closest = target[index];
-    //     double dist_sq = (p.x - closest.x)*(p.x - closest.x) + (p.y - closest.y)*(p.y - closest.y);
-    //     sum_sq_error += dist_sq;
-    // }
-    // double mse = sum_sq_error / transformed_source.size();
-    // double rmse = std::sqrt(mse);
+    // ★ 3. 後処理：結果をリアルスケールに戻す
+    double final_est_x = est_x;
+    double final_est_y = est_y;
+    rescale_transformation_matrix(final_est_x, final_est_y, max_scale);
 
-    // // 回転誤差の計算
-    // double err_th_rad = std::abs(true_theta + total_est_dth);
-    // double err_th_deg = err_th_rad * 180.0 / M_PI;
-
-    // // // レポート出力
-    // // std::cout << "\n========================================" << std::endl;
-    // // std::cout << "         ICP ACCURACY REPORT            " << std::endl;
-    // // std::cout << "========================================" << std::endl;
-    // // std::cout << "Convergence Info:" << std::endl;
-    // // std::cout << "  Iterations   : " << iter << std::endl;
-    // // std::cout << "  Compute Time : " << (icp_duration - total_plot_time).count() << " ms" << std::endl;
-    // // std::cout << "\nAccuracy Metrics:" << std::endl;
-    // // std::cout << "  Rotation Error : " << err_th_deg << " deg" << std::endl;
-    // // std::cout << "  RMSE (Position): " << rmse << " m" << std::endl; 
+    // ここからは評価用計算（リアルスケールで行う）
     
-    // // if(rmse < 0.001) std::cout << "  Result: EXCELLENT (< 1mm)" << std::endl;
-    // // else if(rmse < 0.01) std::cout << "  Result: GOOD (< 1cm)" << std::endl;
-    // // else std::cout << "  Result: POOR (> 1cm)" << std::endl;
-    // // std::cout << "========================================\n" << std::endl;
-    // double true_theta_deg = true_theta * 180.0 / M_PI; // 表示用に度数法に変換
+    // 推定されたパラメータで元の点群を変換
+    std::vector<Point> final_transformed = transform_points_all(original_source, final_est_x, final_est_y, est_th);
 
-    // std::cout << "\n========================================" << std::endl;
-    // std::cout << "         ICP ACCURACY REPORT            " << std::endl;
-    // std::cout << "========================================" << std::endl;
-    
-    // // ★ここに追加しました
-    // std::cout << "Experiment Conditions (True Shift):" << std::endl;
-    // std::cout << "  X Axis         : " << true_dx << " m" << std::endl;
-    // std::cout << "  Y Axis         : " << true_dy << " m" << std::endl;
-    // std::cout << "  Theta          : " << true_theta_deg << " deg" << std::endl;
-
-    // std::cout << "\nConvergence Info:" << std::endl;
-    // std::cout << "  Iterations   : " << iter << std::endl;
-    // std::cout << "  Compute Time : " << (icp_duration - total_plot_time).count() << " ms" << std::endl;
-    
-    // std::cout << "\nAccuracy Metrics:" << std::endl;
-    // std::cout << "  Rotation Error : " << err_th_deg << " deg" << std::endl;
-    // std::cout << "  RMSE (Position): " << rmse << " m" << std::endl; 
-    
-    // if(rmse < 0.001) std::cout << "  Result: EXCELLENT (< 1mm)" << std::endl;
-    // else if(rmse < 0.01) std::cout << "  Result: GOOD (< 1cm)" << std::endl;
-    // else std::cout << "  Result: POOR (> 1cm)" << std::endl;
-    // std::cout << "========================================\n" << std::endl;
-    // === RMSE (位置合わせ精度) の計算 ===
+    // RMSE計算
     double sum_sq_error = 0.0;
-    for(const auto& p : transformed_source) {
+    for(const auto& p : final_transformed) {
         int index = findClosestPoint(p, target);
         Point closest = target[index];
         double dist_sq = (p.x - closest.x)*(p.x - closest.x) + (p.y - closest.y)*(p.y - closest.y);
         sum_sq_error += dist_sq;
     }
-    double mse = sum_sq_error / transformed_source.size();
+    double mse = sum_sq_error / final_transformed.size();
     double rmse = std::sqrt(mse);
 
-    // === ★推定誤差の計算（岩根さん方式の結果を使用） ===
-    // ICPの移動量(est)は、初期ズレ(true)を打ち消す方向に動くので
-    // 正解なら「true + est = 0」になるはず
-    double trans_err_x = std::abs(true_dx + est_x); 
-    double trans_err_y = std::abs(true_dy + est_y);
+    // 推定誤差計算
+double trans_err_x = true_dx - final_est_x; 
+    double trans_err_y = true_dy - final_est_y;
     double trans_err_total = std::sqrt(trans_err_x*trans_err_x + trans_err_y*trans_err_y);
 
-    // 回転誤差の計算
-    double err_th_rad = std::abs(true_theta + total_est_dth);
+    double err_th_rad = std::abs(true_theta + est_th); // 回転も同様
     double err_th_deg = err_th_rad * 180.0 / M_PI;
 
-    // ★追加: 並進誤差の計算（重心のズレを見る）
-    Point target_centroid = get_centroid(target);
-    Point final_source_centroid = get_centroid(transformed_source);
-    
-    double err_x = std::abs(target_centroid.x - final_source_centroid.x);
-    double err_y = std::abs(target_centroid.y - final_source_centroid.y);
-    double err_trans_total = std::sqrt(err_x*err_x + err_y*err_y);
-
-
     // レポート出力
-    double true_theta_deg = true_theta * 180.0 / M_PI;
+    if (visual_mode) {
+        double true_theta_deg = true_theta * 180.0 / M_PI;
+        // 最終的な合わせ結果をプロット（リアルスケール）
+        plot(gnuplot_script, target, final_transformed, true, iter);
 
-    std::cout << "\n========================================" << std::endl;
-    std::cout << "         ICP ACCURACY REPORT            " << std::endl;
-    std::cout << "========================================" << std::endl;
-    
-    std::cout << "Experiment Conditions (True Shift):" << std::endl;
-    std::cout << "  X Axis         : " << true_dx << " m" << std::endl;
-    std::cout << "  Y Axis         : " << true_dy << " m" << std::endl;
-    std::cout << "  Theta          : " << true_theta_deg << " deg" << std::endl;
+        std::cout << "\n========================================" << std::endl;
+        std::cout << "         ICP (Normalized) REPORT        " << std::endl;
+        std::cout << "========================================" << std::endl;
+        std::cout << "Experiment Conditions (True Shift):" << std::endl;
+        std::cout << "  X Axis         : " << true_dx << " m" << std::endl;
+        std::cout << "  Y Axis         : " << true_dy << " m" << std::endl;
+        std::cout << "  Theta          : " << true_theta_deg << " deg" << std::endl;
 
-    std::cout << "\nConvergence Info:" << std::endl;
-    std::cout << "  Iterations     : " << iter << std::endl;
-    std::cout << "  Compute Time   : " << (icp_duration - total_plot_time).count() << " ms" << std::endl;
+        std::cout << "\nConvergence Info:" << std::endl;
+        std::cout << "  Iterations     : " << iter << std::endl;
+        std::cout << "  Compute Time   : " << time_ms << " ms" << std::endl;
+        
+        std::cout << "\nAccuracy Metrics (Residual Error):" << std::endl;
+        std::cout << "  Rotation Error : " << err_th_deg << " deg" << std::endl;
+        std::cout << "  RMSE (Points)  : " << rmse << " m" << std::endl; 
+        std::cout << "  Trans Error 2D : " << trans_err_total << " m" << std::endl;
+        std::cout << "========================================\n" << std::endl;
+    }
     
-    std::cout << "\nAccuracy Metrics (Residual Error):" << std::endl;
-    std::cout << "  Rotation Error : " << err_th_deg << " deg" << std::endl;
-    // ★ここに追加！
-    std::cout << "  Trans Error X  : " << err_x << " m" << std::endl;
-    std::cout << "  Trans Error Y  : " << err_y << " m" << std::endl;
-    std::cout << "  Trans Error 2D : " << err_trans_total << " m" << std::endl;
-    std::cout << "  RMSE (Points)  : " << rmse << " m" << std::endl; 
-    std::cout << "  Trans Error X  : " << trans_err_x << " m" << std::endl;
-    std::cout << "  Trans Error Y  : " << trans_err_y << " m" << std::endl;
-    std::cout << "  Trans Error 2D : " << trans_err_total << " m" << std::endl;
+    return {true_dx, true_dy, true_theta, final_est_x, final_est_y, est_th, trans_err_total, err_th_deg, iter, time_ms, is_converged};
+}
+// ベンチマーク実行関数
+void run_benchmark(const std::vector<Point>& source_data) {
+    std::cout << "Starting Benchmark Mode (Scan X: -1.0m ~ +1.0m, Theta: 0 deg)..." << std::endl;
     
-    if(rmse < 0.001) std::cout << "  Result: EXCELLENT (< 1mm)" << std::endl;
-    else if(rmse < 0.01) std::cout << "  Result: GOOD (< 1cm)" << std::endl;
-    else std::cout << "  Result: POOR (> 1cm)" << std::endl;
-    std::cout << "========================================\n" << std::endl;
+    // CSVファイルを開く
+    std::ofstream csv("benchmark_result_icp.csv");
+    // ヘッダー書き込み
+    csv << "True_DX,True_DY,True_Theta_Deg,Est_DX,Est_DY,Est_Theta_Deg,Error_Trans,Error_Theta,Iter,Time_ms,Converged" << std::endl;
+
+    // ★ 実験条件: X方向のズレ (-1.0m 〜 +1.0m, 0.1m刻み)
+    std::vector<double> test_dxs;
+    for(int i = -10; i <= 10; ++i) {
+        test_dxs.push_back(i * 0.1); 
+    }
+
+    // 角度は 0度 に固定
+    double true_theta = 0.0; 
+    double true_dy = 0.0; // Yは0固定（必要に応じて変更）
+
+    // ダミーのストリーム（ベンチマーク時は描画しないため）
+    std::ofstream dummy_script;
+
+    int total_tests = test_dxs.size();
+    int current_test = 0;
+
+    // ループ実行
+    for (double true_dx : test_dxs) {
+        current_test++;
+
+        // ターゲット（正解データ）を生成
+        std::vector<Point> target = transformpoints(source_data, true_dx, true_dy, true_theta);
+
+        // 進捗表示
+        std::cout << "\rRunning test " << current_test << "/" << total_tests 
+                  << " [dx=" << std::fixed << std::setprecision(1) << true_dx << "m]... " << std::flush;
+        
+        // ICP実行 (visual_mode = false)
+        ExperimentResult res = icp_scan_matching(dummy_script, source_data, target, true_dx, true_dy, true_theta, false);
+
+        // CSVに書き込み
+        csv << res.true_dx << "," << res.true_dy << "," << res.true_theta * 180.0/M_PI << ","
+            << res.est_dx << "," << res.est_dy << "," << res.est_theta * 180.0/M_PI << ","
+            << res.error_trans << "," << res.error_theta << ","
+            << res.iterations << "," << res.time_ms << "," << res.converged << std::endl;
+    }
+    std::cout << "\nBenchmark finished! Saved to 'benchmark_result_icp.csv'" << std::endl;
+    csv.close();
 }
 
+
 int main(void){
-    std::vector<Point> current = read_scan_points("scan_1.txt");
-    //std::vector<Point> target = read_scan_points("scan_2.txt");
-std::vector<Point> target = current;
-    // 初期ズレ量 (正解データ)
-    double true_dx = 0.0;
-    double true_dy = 0.0;
-    double true_theta = M_PI / 4.0;
+    std::vector<Point> target = read_scan_points("scan_1.txt");
+    std::vector<Point> source = target;
 
-    // わざとずらす
-    std::vector<Point> moved_current = transformpoints(current, true_dx, true_dy, true_theta);
-    std::vector<Point> Source = moved_current;
+    std::cout << "Select Mode:\n 1: Single Run (with Plot)\n 2: Benchmark (CSV output, No Plot)\n> ";
+    int mode;
+    std::cin >> mode;
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // バッファクリア
 
-    std::ofstream gnuplot_script("plot_commands.gp");
-    plot(gnuplot_script, target, Source, true, 0);
+    if (mode == 2) {
+        // ベンチマークモード
+        run_benchmark(source);
+    } 
+    else {
+        // 通常モード
+        // 初期ズレ量
+        float true_dx = 0;
+        float true_dy = -15;
+        float true_theta = 0;
 
-    // ★修正3: ここで引数を渡す！
-    icp_scan_matching(gnuplot_script, Source, target, true_dx, true_dy, true_theta);
+        std::vector<Point> moved_target = transformpoints(target, true_dx, true_dy, true_theta);
+        std::vector<Point> Target = moved_target;
+
+        std::ofstream gnuplot_script;
+
+        // 初期状態のプロット
+        std::cout << "Plotting Initial State..." << std::endl;
+        plot(gnuplot_script, Target, source, true, 0);
+
+        // 一時停止
+        std::cout << "Press [Enter] key to start..." << std::endl;
+        std::cin.get(); 
+
+        // 計算開始 (visual_mode = true)
+        icp_scan_matching(gnuplot_script, source, Target, true_dx, true_dy, true_theta, true);
+    }
 
     return 0;
 }
-
-// #include <iostream>
 // #include <cmath>
 // #include <ctime>
 // #include <limits>
@@ -1041,6 +1081,3 @@ std::vector<Point> target = current;
 //     plot(gnuplot_script, target, Source, true, 0);
 
 //     icp_scan_matching(gnuplot_script, Source, target, true_dx, true_dy, true_theta);
-
-//     return 0;
-// }

@@ -3,9 +3,9 @@
 
 #include <cmath> // M_PIを使うため
 
-constexpr int MAX_ITERATION = 1000; // 最大反復回数 (ICPなどで使用)
-constexpr double learning_rate_xy = 0.05;
-constexpr double learning_rate_th = 0.007;
+constexpr int MAX_ITERATION = 100; // 最大反復回数 (ICPなどで使用)
+constexpr double learning_rate_xy = 1;
+constexpr double learning_rate_th = 1;
 constexpr double learning_rate = 0.01;
 constexpr double EPS = 1e-7;
 
